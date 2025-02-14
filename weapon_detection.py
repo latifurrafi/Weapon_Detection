@@ -1,70 +1,41 @@
-import numpy as np
+import sys
 import cv2
-import imutils
-import datetime
-import pygame
+import torch
+from ultralytics import YOLO
+from contextlib import redirect_stdout
 import os
 
-# Initialize pygame mixer
-pygame.mixer.init()
+# Silence YOLO logs
+with open(os.devnull, 'w') as f, redirect_stdout(f):
+    model = YOLO("/home/rafi/VSCODE/Weapon_Detection/yolov8n.pt")
 
-# Path to your alert sound file
-sound_file = "alert_sound.wav"  # Replace with your actual file path
-
-# Check if the file exists
-if os.path.exists(sound_file):
-    alert_sound = pygame.mixer.Sound(sound_file)
-else:
-    print("Error: Sound file not found!")
-
-# Load gun cascade
-gun_cascade = cv2.CascadeClassifier('cascade.xml')
-
-# Open camera
+# For open webcam
 camera = cv2.VideoCapture(0)
-firstFrame = None
 
 while True:
     ret, frame = camera.read()
-    if frame is None:
+    if not ret:
         break
 
-    frame = imutils.resize(frame, width=500)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Run YOLO detection
+    results = model(frame)
 
-    # Reset gun detection flag
-    gun_exist = False  
+    gun_detected = False
+    for result in results:
+        for box in result.boxes:
+            confidence = box.conf[0].item()
+            class_id = int(box.cls[0].item())
 
-    # Detect guns
-    guns = gun_cascade.detectMultiScale(gray, 1.3, 20, minSize=(100, 100))
+            if class_id == 0 and confidence > 0.8:
+                gun_detected = True
 
-    if len(guns) > 0:
-        gun_exist = True  # Set to True only if gun is detected
+    if gun_detected:
+        print("⚠️ Gun detected!")  # Only prints when a gun is detected
 
-    # Draw rectangles if guns are found
-    for (x, y, w, h) in guns:
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red color for visibility
+    cv2.imshow("Gun Detection", frame)
 
-    # Add timestamp
-    cv2.putText(frame, datetime.datetime.now().strftime("%A %d %B %Y %I:%M:%S %p"),
-                (10, frame.shape[0] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.35, (0, 0, 255), 1)
-
-    # Show detection status
-    if gun_exist:
-        print("Guns detected")
-        alert_sound.play()  # Play the alert sound
-        cv2.imshow("Guns detected", frame)
-    else:
-        cv2.imshow("Security Feed", frame)
-
-
-    # Exit on 'q' press
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('q'):
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# Release resources
 camera.release()
 cv2.destroyAllWindows()
